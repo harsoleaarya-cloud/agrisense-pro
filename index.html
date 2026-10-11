@@ -1,0 +1,347 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<title>AgriSense Pro</title>
+
+<link href="https://fonts.googleapis.com/css2?family=Poppins:wght@300;400;600&display=swap" rel="stylesheet">
+<script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+
+<style>
+body{
+  margin:0;
+  font-family:Poppins,sans-serif;
+  background:
+    linear-gradient(rgba(0,0,0,.78),rgba(0,0,0,.78)),
+    url("https://images.unsplash.com/photo-1501004318641-b39e6451bec6");
+  background-size:cover;
+  background-attachment:fixed;
+  color:#f1f1f1;
+}
+.container{max-width:1100px;margin:auto;padding:20px}
+.hero{text-align:center;padding:90px 20px}
+.hero h1{color:#00e676;font-size:3rem}
+.card{
+  background:rgba(0,0,0,.65);
+  backdrop-filter:blur(12px);
+  border-radius:18px;
+  padding:25px;
+  margin-bottom:30px;
+}
+select,input,button{
+  width:100%;
+  padding:12px;
+  margin-bottom:12px;
+  border:none;
+  border-radius:10px;
+  background:#1c1c1c;
+  color:white;
+}
+input[readonly]{
+  background:#111;
+  color:#00e676;
+  font-weight:600;
+}
+button{
+  background:#00e676;
+  color:black;
+  font-size:16px;
+  cursor:pointer;
+}
+button:hover{background:#00c853}
+table{width:100%;border-collapse:collapse;margin-top:20px}
+th,td{border:1px solid #333;padding:10px;text-align:center}
+th{background:#00e676;color:black}
+canvas{background:#111;padding:10px;border-radius:12px}
+</style>
+</head>
+
+<body>
+<div class="container">
+
+<div class="hero">
+  <h1 id="title">AgriSense Pro 🌱</h1>
+  <p id="subtitle">Smart Agricultural Advisory System</p>
+
+  <select onchange="setLang(this.value)">
+    <option value="en">English</option>
+    <option value="hi">हिंदी</option>
+    <option value="mr">मराठी</option>
+  </select>
+</div>
+
+<div class="card">
+  <h3 id="fieldTitle">Field Details</h3>
+
+  <select id="crop"></select>
+  <select id="soil"></select>
+  <select id="season"></select>
+
+  <input id="n" placeholder="Nitrogen">
+  <input id="p" placeholder="Phosphorus">
+  <input id="k" placeholder="Potassium">
+  <input id="ph" placeholder="Soil pH">
+
+  <input id="m" placeholder="Soil Moisture (Auto)" readonly>
+  <input id="h" placeholder="Humidity (Auto)" readonly>
+  <input id="t" placeholder="Temperature (Auto)" readonly>
+
+  <button onclick="connectArduino()">🔌 Connect Arduino</button>
+  <button onclick="generate()">Generate Report</button>
+</div>
+
+<div id="report" style="display:none">
+
+  <div class="card">
+    <h3 id="reportTitle"></h3>
+    <table id="reportTable"></table>
+  </div>
+
+  <div class="card">
+    <h3 id="chartTitle"></h3>
+    <canvas id="chart"></canvas>
+  </div>
+
+  <div class="card" id="details"></div>
+
+</div>
+</div>
+
+<script>
+
+let lang="en", chart;
+
+const text={
+en:{
+ title:"AgriSense Pro 🌱",
+ subtitle:"Smart Agricultural Advisory System",
+ field:"Field Details",
+ crop:["Select Crop","Soybean","Wheat","Rice"],
+ soil:["Select Soil","Black Soil","Red Soil","Alluvial Soil"],
+ season:["Select Season","Kharif","Rabi","Zaid"],
+ report:"Advisory Report",
+ chart:"Observed vs Ideal Comparison",
+ head:["Parameter","Ideal Range","Observed","Status"],
+ status:(v,r)=>v>=r[0]&&v<=r[1]?"GOOD":"TAKE ACTION",
+ params:[
+  ["Nitrogen","","Leaf growth","Excess harms crop","Apply balanced nitrogen"],
+  ["Phosphorus","","Root development","Low yield","Use DAP/SSP"],
+  ["Potassium","","Disease resistance","Weak plant","Apply potash"],
+  ["Soil pH","","Nutrient availability","Blocks nutrients","Use lime/gypsum"],
+  ["Soil Moisture","","Water absorption","Root rot","Proper irrigation"],
+  ["Humidity","","Transpiration","Disease risk","Ensure airflow"],
+  ["Temperature","","Crop growth","Heat/cold damage","Choose season wisely"]
+ ]
+},
+
+hi:{
+ title:"एग्रीसेंस प्रो 🌱",
+ subtitle:"स्मार्ट कृषि सलाह प्रणाली",
+ field:"खेत की जानकारी",
+ crop:["फसल चुनें","सोयाबीन","गेहूं","धान"],
+ soil:["मिट्टी चुनें","काली मिट्टी","लाल मिट्टी","जलोढ़ मिट्टी"],
+ season:["मौसम चुनें","खरीफ","रबी","ज़ायद"],
+ report:"सलाह रिपोर्ट",
+ chart:"आदर्श बनाम वास्तविक तुलना",
+ head:["पैरामीटर","आदर्श","वर्तमान","स्थिति"],
+ status:(v,r)=>v>=r[0]&&v<=r[1]?"अच्छा":"कार्रवाई आवश्यक",
+ params:[
+  ["नाइट्रोजन","","पत्तियों की वृद्धि","फसल नुकसान","नाइट्रोजन डालें"],
+  ["फास्फोरस","","जड़ विकास","कम उत्पादन","DAP डालें"],
+  ["पोटैशियम","","रोग प्रतिरोध","कमजोर पौधा","पोटाश डालें"],
+  ["मिट्टी pH","","पोषण उपलब्धता","अवरोध","चूना डालें"],
+  ["मिट्टी नमी","","जल अवशोषण","सड़न","सिंचाई करें"],
+  ["आर्द्रता","","वाष्पोत्सर्जन","रोग","हवादार रखें"],
+  ["तापमान","","फसल वृद्धि","नुकसान","मौसम देखें"]
+ ]
+},
+
+mr:{
+ title:"ॲग्रीसेन्स प्रो 🌱",
+ subtitle:"स्मार्ट शेती सल्ला प्रणाली",
+ field:"शेत माहिती",
+ crop:["पीक निवडा","सोयाबीन","गहू","भात"],
+ soil:["माती निवडा","काळी माती","लाल माती","गाळाची माती"],
+ season:["हंगाम निवडा","खरीप","रब्बी","झायड"],
+ report:"सल्ला अहवाल",
+ chart:"आदर्श व सध्याची तुलना",
+ head:["घटक","आदर्श","सध्याचे","स्थिती"],
+ status:(v,r)=>v>=r[0]&&v<=r[1]?"चांगले":"कारवाई आवश्यक",
+ params:[
+  ["नायट्रोजन","","पाने वाढ","नुकसान","नायट्रोजन वापरा"],
+  ["स्फुरद","","मुळ वाढ","कमी उत्पादन","DAP वापरा"],
+  ["पालाश","","रोग प्रतिकार","कमजोर पीक","पालाश वापरा"],
+  ["माती pH","","पोषक उपलब्धता","अडथळा","चुना वापरा"],
+  ["माती आर्द्रता","","पाणी शोषण","सड","सिंचन करा"],
+  ["आर्द्रता","","वाष्पोत्सर्जन","रोग","हवा खेळती ठेवा"],
+  ["तापमान","","पीक वाढ","नुकसान","योग्य हंगाम"]
+ ]
+}
+};
+
+function fillSelect(el,arr){
+ el.innerHTML="";
+ arr.forEach(v=>{
+  let o=document.createElement("option");
+  o.text=v;
+  el.add(o);
+ });
+}
+
+function setLang(l){
+ lang=l;
+ title.innerText=text[l].title;
+ subtitle.innerText=text[l].subtitle;
+ fieldTitle.innerText=text[l].field;
+ fillSelect(crop,text[l].crop);
+ fillSelect(soil,text[l].soil);
+ fillSelect(season,text[l].season);
+}
+setLang("en");
+
+
+// PERMUTATION USING INDEX (NO TEXT MATCH ISSUE)
+
+function getIdealRanges(){
+
+ let cropIndex = crop.selectedIndex;
+ let soilIndex = soil.selectedIndex;
+ let seasonIndex = season.selectedIndex;
+
+ if(cropIndex==0 || soilIndex==0 || seasonIndex==0) return null;
+
+ let soilFactor = soilIndex*10;
+ let seasonFactor = seasonIndex*5;
+
+ return [
+  [60+soilFactor,100+seasonFactor],
+  [40+soilFactor/2,60+seasonFactor/2],
+  [40+seasonFactor/2,60+soilFactor/2],
+  soilIndex==2?[5.5,6.5]:[6,7.5],
+  seasonIndex==1?[50,70]:[40,60],
+  [50,65],
+  seasonIndex==2?[15,30]:[20,35]
+ ];
+}
+
+// ---------- ARDUINO LIVE READINGS (Web Serial API) ----------
+// The Arduino prints one line every 2 s:  temperature,humidity,soilMoisture
+// e.g.  28,55,58   (see arduino/agrisense.ino)
+
+let serialPort = null, serialReader = null;
+
+async function connectArduino(){
+
+ if(!("serial" in navigator)){
+  alert("Web Serial is not supported in this browser. Please use Chrome or Edge on a computer.");
+  return;
+ }
+
+ try{
+  serialPort = await navigator.serial.requestPort();
+  await serialPort.open({baudRate:9600});
+ }catch(err){
+  alert("Could not open the Arduino port: " + err.message);
+  return;
+ }
+
+ const btn = document.querySelector("button[onclick='connectArduino()']");
+ btn.innerText = "✅ Arduino Connected";
+
+ const decoder = new TextDecoderStream();
+ serialPort.readable.pipeTo(decoder.writable).catch(()=>{});
+ serialReader = decoder.readable.getReader();
+
+ let buffer = "";
+ try{
+  while(true){
+   const {value, done} = await serialReader.read();
+   if(done) break;
+   buffer += value;
+
+   let lines = buffer.split("\n");
+   buffer = lines.pop();            // keep the incomplete last piece
+
+   lines.forEach(line=>{
+    const parts = line.trim().split(",");
+    if(parts.length !== 3) return;
+    const [temp, hum, moist] = parts.map(Number);
+    if([temp,hum,moist].some(Number.isNaN)) return;
+
+    document.getElementById("t").value = temp;
+    document.getElementById("h").value = hum;
+    document.getElementById("m").value = moist;
+   });
+  }
+ }catch(err){
+  console.error(err);
+ }finally{
+  btn.innerText = "🔌 Connect Arduino";
+ }
+}
+
+function generate(){
+
+ let idealRanges = getIdealRanges();
+ if(!idealRanges){
+  alert("Please select Crop, Soil and Season");
+  return;
+ }
+
+ // every reading must be filled in before building the report
+ const required = ["n","p","k","ph","m","h","t"];
+ if(required.some(id => document.getElementById(id).value.trim() === "")){
+  alert("Please fill N, P, K and pH, and connect the Arduino so moisture, humidity and temperature are read.");
+  return;
+ }
+
+ report.style.display="block";
+ reportTitle.innerText=text[lang].report;
+ chartTitle.innerText=text[lang].chart;
+
+ const vals=[+n.value,+p.value,+k.value,+ph.value,+m.value,+h.value,+t.value];
+
+ let table=`<tr>${text[lang].head.map(h=>`<th>${h}</th>`).join("")}</tr>`;
+
+ text[lang].params.forEach((p,i)=>{
+  let r=idealRanges[i];
+  table+=`<tr>
+  <td>${p[0]}</td>
+  <td>${r[0]}–${r[1]}</td>
+  <td>${vals[i]}</td>
+  <td>${text[lang].status(vals[i],r)}</td>
+  </tr>`;
+ });
+
+ reportTable.innerHTML=table;
+
+ if(chart)chart.destroy();
+ chart=new Chart(document.getElementById("chart"),{
+  type:"bar",
+  data:{
+   labels:text[lang].params.map(p=>p[0]),
+   datasets:[
+    {label:"Observed",data:vals,backgroundColor:"#ff5252"},
+    {label:"Ideal",data:idealRanges.map(r=>(r[0]+r[1])/2),backgroundColor:"#00e676"}
+   ]
+  }
+ });
+
+ let dHTML="";
+ text[lang].params.forEach((p,i)=>{
+  let r=idealRanges[i];
+  dHTML+=`<h3>${i+1}. ${p[0]}</h3>
+  <p><b>Ideal Range:</b> ${r[0]}–${r[1]}</p>
+  <p><b>Present Value:</b> ${vals[i]}</p>
+  <p><b>Advantages:</b> ${p[2]}</p>
+  <p><b>Disadvantages:</b> ${p[3]}</p>
+  <p><b>Precautions:</b> ${p[4]}</p><hr>`;
+ });
+
+ details.innerHTML=dHTML;
+}
+
+</script>
+
+</body>
+</html>
